@@ -1,0 +1,47 @@
+# pull official base image
+FROM python:3.9-slim-buster
+
+# create directory for the app user
+RUN mkdir -p /home/app
+
+# create the app user
+RUN addgroup --system app && adduser --system --group app
+
+# create the appropriate directories
+ENV HOME=/home/app
+ENV APP_HOME=/home/app/web
+RUN mkdir $APP_HOME
+WORKDIR $APP_HOME
+
+# set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV ENVIRONMENT prod
+ENV TESTING 0
+ENV POETRY_VERSION=1.1.12
+
+# install system dependencies
+RUN apt-get update \
+    && apt-get -y install netcat gcc postgresql \
+    && apt-get clean
+
+# install python dependencies
+RUN pip install --upgrade pip
+RUN pip install "poetry==$POETRY_VERSION"
+COPY poetry.lock pyproject.toml /home/app/web/
+# Project initialization:
+RUN poetry config virtualenvs.create false \
+    && poetry install $(test "$YOUR_ENV" == prod && echo "--no-dev") --no-interaction --no-ansi
+RUN poetry add "uvicorn[standard]==0.16.0"
+
+# add app
+COPY . .
+
+# chown all the files to the app user
+RUN chown -R app:app $APP_HOME
+
+# change to the app user
+USER app
+
+# run gunicorn
+CMD gunicorn --bind 0.0.0.0:$PORT app.main:app -k uvicorn.workers.UvicornWorker
